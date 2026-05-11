@@ -1,6 +1,36 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { weeklyData } from './data.js';
 import { getCurrentUser, getActiveProject, getUserProjects, calculateCompletion, calculateUserLoad, getGreeting, generateInitials, addMemberToProject, getProjectById } from './store.js';
+
+function getWeeklyData(tasks) {
+  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+  monday.setHours(0,0,0,0);
+
+  const taskCounts = days.map((_, i) => {
+    const day = new Date(monday);
+    day.setDate(monday.getDate() + i);
+    const next = new Date(day);
+    next.setDate(day.getDate() + 1);
+    return tasks.filter(t => {
+      if (!t.completedAt) return false;
+      const d = new Date(t.completedAt);
+      return d >= day && d < next;
+    }).length;
+  });
+
+  const prCounts = taskCounts.map(c => Math.round(c * 0.6));
+
+  // If no real data yet (new project), use minimal placeholder
+  const hasData = taskCounts.some(c => c > 0);
+  return {
+    days,
+    tasks: hasData ? taskCounts : [0,0,0,0,0,0,0],
+    prs: hasData ? prCounts : [0,0,0,0,0,0,0]
+  };
+}
 
 function LoadBar({load,animate}){const w=animate?load:0;const color=load>85?'var(--danger)':load>65?'var(--warning)':'var(--success)';
   return(<div style={{flex:1}}><div className="load-bar"><div className="load-fill" style={{width:`${w}%`,background:color}}/></div></div>);}
@@ -20,24 +50,25 @@ function MemberCard({m,animate,delay}){const[show,setShow]=useState(false);
   </div>);
 }
 
-function WeeklyChart({isDark}){const ref=useRef(null);
+function WeeklyChart({isDark,data}){const ref=useRef(null);
   const draw=useCallback(()=>{const c=ref.current;if(!c)return;const par=c.parentElement;if(!par)return;
     const W=par.clientWidth,H=220;c.width=W*2;c.height=H*2;c.style.width=W+'px';c.style.height=H+'px';
-    const ctx=c.getContext('2d');ctx.scale(2,2);const{days,tasks:td,prs}=weeklyData;
-    const mx=Math.max(...td,...prs)*1.3,px=36,py=16,cw=W-px*2,ch=H-py*3;
+    const ctx=c.getContext('2d');ctx.scale(2,2);const{days,tasks:td,prs}=data;
+    const rawMax=Math.max(...td,...prs);const mx=(rawMax||1)*1.3;
+    const px=36,py=16,cw=W-px*2,ch=H-py*3;
     const txt=isDark?'#8B8AA0':'#6B6B80',grid=isDark?'#2A2840':'#E8E8F0';
     ctx.strokeStyle=grid;ctx.lineWidth=0.5;
     for(let i=0;i<=4;i++){const y=py+(ch/4)*i;ctx.beginPath();ctx.moveTo(px,y);ctx.lineTo(W-px,y);ctx.stroke();ctx.fillStyle=txt;ctx.font='11px Inter';ctx.textAlign='right';ctx.fillText(Math.round(mx-(mx/4)*i),px-8,y+4);}
     const bw=Math.min((cw/7)*0.28,20),g=3;
     days.forEach((d,i)=>{const x=px+(cw/7)*i+(cw/7)/2;
-      const th=(td[i]/mx)*ch;ctx.fillStyle='#7F77DD';ctx.beginPath();ctx.roundRect?ctx.roundRect(x-bw-g,py+ch-th,bw,th,[3,3,0,0]):ctx.rect(x-bw-g,py+ch-th,bw,th);ctx.fill();
-      const ph=(prs[i]/mx)*ch;ctx.fillStyle='#5DCAA5';ctx.beginPath();ctx.roundRect?ctx.roundRect(x+g,py+ch-ph,bw,ph,[3,3,0,0]):ctx.rect(x+g,py+ch-ph,bw,ph);ctx.fill();
+      const th=rawMax>0?(td[i]/mx)*ch:0;ctx.fillStyle='#7F77DD';ctx.beginPath();ctx.roundRect?ctx.roundRect(x-bw-g,py+ch-th,bw,th,[3,3,0,0]):ctx.rect(x-bw-g,py+ch-th,bw,th);ctx.fill();
+      const ph=rawMax>0?(prs[i]/mx)*ch:0;ctx.fillStyle='#5DCAA5';ctx.beginPath();ctx.roundRect?ctx.roundRect(x+g,py+ch-ph,bw,ph,[3,3,0,0]):ctx.rect(x+g,py+ch-ph,bw,ph);ctx.fill();
       ctx.fillStyle=txt;ctx.textAlign='center';ctx.font='11px Inter';ctx.fillText(d,x,py+ch+16);});
     ctx.fillStyle='#7F77DD';ctx.beginPath();ctx.roundRect?ctx.roundRect(W/2-80,H-16,10,10,2):ctx.rect(W/2-80,H-16,10,10);ctx.fill();
     ctx.fillStyle=txt;ctx.textAlign='left';ctx.font='11px Inter';ctx.fillText('Tasks',W/2-65,H-8);
     ctx.fillStyle='#5DCAA5';ctx.beginPath();ctx.roundRect?ctx.roundRect(W/2-10,H-16,10,10,2):ctx.rect(W/2-10,H-16,10,10);ctx.fill();
     ctx.fillStyle=txt;ctx.fillText('PRs',W/2+5,H-8);
-  },[isDark]);
+  },[isDark,data]);
   useEffect(()=>{draw();const h=()=>draw();window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[draw]);
   return <canvas ref={ref} style={{display:'block',width:'100%'}}/>;
 }
@@ -174,7 +205,7 @@ export default function DashboardScreen({isDark,loaded,addToast,forceUpdate,dv})
         </div>
         <div className="card">
           <div className="card-title">Weekly Activity</div>
-          <WeeklyChart isDark={isDark}/>
+          <WeeklyChart isDark={isDark} data={getWeeklyData(tasks)}/>
         </div>
       </div>
     </div>

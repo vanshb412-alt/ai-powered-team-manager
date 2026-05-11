@@ -1,7 +1,67 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './app.css';
-import { notifications, announcements } from './data.js';
+import { announcements } from './data.js';
 import { getData, saveData, initDemoData, initNewUser, getCurrentUser, getActiveProject, getUserProjects, getRoleInProject, setActiveProject, generateInitials, createProject, joinProject } from './store.js';
+
+function getDynamicNotifications(proj) {
+  const notes = [];
+  const tasks = proj?.tasks || [];
+  const members = proj?.members || [];
+
+  // Overloaded member notification
+  const overloaded = members.find(m => {
+    const mTasks = tasks.filter(t =>
+      t.assignedTo?.toLowerCase() === m.name?.toLowerCase()
+      && t.status !== 'Done'
+    );
+    return mTasks.length >= 5;
+  });
+  if (overloaded) {
+    notes.push({
+      color: '#E24B4A',
+      title: `${overloaded.name} may be overloaded`,
+      time: 'Just now'
+    });
+  }
+
+  // Overdue tasks notification
+  const overdue = tasks.filter(t =>
+    t.status !== 'Done' && t.dueDate &&
+    new Date(t.dueDate) < new Date()
+  );
+  if (overdue.length > 0) {
+    notes.push({
+      color: '#BA7517',
+      title: `${overdue.length} task${overdue.length > 1 ? 's are' : ' is'} overdue`,
+      time: 'Today'
+    });
+  }
+
+  // Recently completed notification
+  const recentDone = tasks.filter(t => {
+    if (!t.completedAt) return false;
+    const hrs = (Date.now() - new Date(t.completedAt)) / 3600000;
+    return hrs < 24;
+  });
+  if (recentDone.length > 0) {
+    notes.push({
+      color: '#1D9E75',
+      title: `${recentDone.length} task${recentDone.length > 1 ? 's' : ''} completed today`,
+      time: 'Today'
+    });
+  }
+
+  // Fallback if no notifications
+  if (notes.length === 0) {
+    notes.push({
+      color: '#534AB7',
+      title: 'All caught up! No new alerts.',
+      time: 'Just now'
+    });
+  }
+
+  return notes.slice(0, 3);
+}
 import LoginScreen from './LoginScreen.jsx';
 import RoleSelectScreen from './RoleSelectScreen.jsx';
 import OnboardingScreen from './OnboardingScreen.jsx';
@@ -186,8 +246,8 @@ export default function SynapseDashboard(){
           {isLeader&&<button className="nav-btn" onClick={()=>navigate('tasks')} title="Task Manager" style={{color:screen==='tasks'?'var(--primary)':'var(--text-muted)'}}><ClipIcon/></button>}
           <button className="nav-btn" onClick={()=>setShowSidebar(true)}><MegaIcon/></button>
           <button className={`nav-btn ${bellRing?'bell-ringing':''}`} onClick={()=>setShowNotifs(n=>!n)} style={{position:'relative'}}>
-            <BellIcon/><span className="badge">3</span>
-            {showNotifs&&<div className="notif-dropdown" onClick={e=>e.stopPropagation()}>{notifications.map((n,i)=>(<div className="notif-item" key={i}><div className="notif-bar" style={{background:n.color}}/><div><div className="notif-title">{n.title}</div><div className="notif-time">{n.time}</div></div></div>))}</div>}
+            <BellIcon/><span className="badge">{getDynamicNotifications(getActiveProject()).length}</span>
+            {showNotifs&&<div className="notif-dropdown" onClick={e=>e.stopPropagation()}>{getDynamicNotifications(getActiveProject()).map((n,i)=>(<div className="notif-item" key={i}><div className="notif-bar" style={{background:n.color}}/><div><div className="notif-title">{n.title}</div><div className="notif-time">{n.time}</div></div></div>))}</div>}
           </button>
           <button className={`nav-btn ${themeSpin?'theme-spin':''}`} onClick={toggleDark}>{isDark?<SunIcon/>:<MoonIcon/>}</button>
           <div className="avatar" onClick={()=>setShowAvatarMenu(s=>!s)} style={{cursor:'none',boxShadow:screen==='profile'?'0 0 0 2px var(--primary)':'none',transition:'box-shadow 0.2s ease',position:'relative'}}>

@@ -1,11 +1,35 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { velocityData, sprintTableStatic } from './data.js';
 import { getActiveProject, calculateCompletion, calculateUserLoad } from './store.js';
 
-function VelocityChart({isDark,animate}){const ref=useRef(null);
+function getVelocityData(currentVelocity, sprintName) {
+  // Generate 4 previous sprints working back from current
+  // Each sprint varies by ±5-10% for realistic trend
+  const current = currentVelocity || 75;
+  const sprintNum = parseInt(sprintName?.replace(/\D/g,'')) || 14;
+
+  const values = [];
+  const sprints = [];
+
+  for (let i = 4; i >= 0; i--) {
+    const sNum = sprintNum - i;
+    sprints.push('S' + sNum);
+    if (i === 0) {
+      values.push(current);
+    } else {
+      // Simulate gradual improvement trend
+      const base = Math.max(40, current - (i * 7));
+      const variation = (sNum % 3) - 1; // -1, 0, or 1
+      values.push(Math.min(100, Math.max(30, base + variation * 3)));
+    }
+  }
+
+  return { sprints, values };
+}
+
+function VelocityChart({isDark,animate,data}){const ref=useRef(null);
   const draw=useCallback(()=>{const c=ref.current;if(!c)return;const par=c.parentElement;if(!par)return;
     const W=par.clientWidth,H=220;c.width=W*2;c.height=H*2;c.style.width=W+'px';c.style.height=H+'px';
-    const ctx=c.getContext('2d');ctx.scale(2,2);const{sprints,values}=velocityData;
+    const ctx=c.getContext('2d');ctx.scale(2,2);const{sprints,values}=data;
     const mx=Math.max(...values)*1.2,px=36,py=16,cw=W-px*2,ch=H-py*3;
     const txt=isDark?'#8B8AA0':'#6B6B80',grid=isDark?'#2A2840':'#E8E8F0';
     ctx.strokeStyle=grid;ctx.lineWidth=0.5;
@@ -18,7 +42,7 @@ function VelocityChart({isDark,animate}){const ref=useRef(null);
     const grd=ctx.createLinearGradient(0,py,0,py+ch);grd.addColorStop(0,'rgba(83,74,183,0.25)');grd.addColorStop(1,'rgba(83,74,183,0)');ctx.fillStyle=grd;ctx.fill();
     pts.forEach((p,i)=>{ctx.beginPath();ctx.arc(p.x,p.y,4,0,Math.PI*2);ctx.fillStyle='#534AB7';ctx.fill();ctx.lineWidth=2;ctx.strokeStyle=isDark?'#1A1928':'#fff';ctx.stroke();
       ctx.fillStyle=txt;ctx.textAlign='center';ctx.font='600 11px Inter';ctx.fillText(values[i],p.x,p.y-10);ctx.font='11px Inter';ctx.fillText(sprints[i],p.x,py+ch+16);});
-  },[isDark]);
+  },[isDark,data]);
   useEffect(()=>{if(animate)draw();const h=()=>draw();window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[draw,animate]);
   return <canvas ref={ref} style={{display:'block',width:'100%'}}/>;
 }
@@ -34,6 +58,25 @@ export default function AnalyticsScreen({isDark,addToast,dv}){
   const velocity=tasks.length?Math.round(tasks.filter(t=>t.status==='Done').length/tasks.length*100):0;
   const aiScore=Math.round(velocity*0.6+completion*0.4);
   const currentSprint={sprint:proj?.sprintName||'S14',tasks:tasks.length,bugs:bugsDone,velocity:velocity+'%',cycle:avgCycle+'d',ai:aiScore,current:true};
+  const sprintNum=parseInt(proj?.sprintName?.replace(/\D/g,''))||14;
+  const previousSprints=[
+    {
+      sprint:'S'+(sprintNum-2),
+      tasks:Math.max(0,tasks.length-8),
+      bugs:Math.max(0,bugsDone-4),
+      velocity:Math.max(30,velocity-18)+'%',
+      cycle:(Math.max(1,avgCycle+0.6)).toFixed(1)+'d',
+      ai:Math.max(40,aiScore-18)
+    },
+    {
+      sprint:'S'+(sprintNum-1),
+      tasks:Math.max(0,tasks.length-4),
+      bugs:Math.max(0,bugsDone-2),
+      velocity:Math.max(35,velocity-10)+'%',
+      cycle:(Math.max(1,avgCycle+0.3)).toFixed(1)+'d',
+      ai:Math.max(45,aiScore-9)
+    }
+  ];
   const heatmap=Array.from({length:28},(_,i)=>{const seed=(proj?.id||'x').charCodeAt(i%7)+i;return seed%5;});
 
   useEffect(()=>{const t=setTimeout(()=>setAnimate(true),100);return()=>clearTimeout(t);},[]);
@@ -59,7 +102,7 @@ export default function AnalyticsScreen({isDark,addToast,dv}){
         <div className="card-inner"><div className="metric-label">Avg Cycle Time</div><div className="metric-val">{counts[2]||'N/A'}{counts[2]?'d':''}</div><div className="metric-delta" style={{color:'var(--warning)'}}>Creation to completion</div><div className="stat-bar"><div className="stat-fill" style={{width:animate?Math.min(100,avgCycle*20)+'%':'0%',background:'var(--warning)'}}/></div></div>
       </div>
       <div className="two-col">
-        <div className="card"><div className="card-title">Velocity Trend</div><VelocityChart isDark={isDark} animate={animate}/></div>
+        <div className="card"><div className="card-title">Velocity Trend</div><VelocityChart isDark={isDark} animate={animate} data={getVelocityData(velocity,proj?.sprintName)}/></div>
         <div className="card"><div className="card-title">Individual Output</div>
           {members.length===0?<div style={{textAlign:'center',padding:24,color:'var(--text-muted)',fontSize:13}}>No team members yet</div>:
           members.map((o,i)=>(<div className="output-row" key={i}><div className="output-name">{o.name}</div><div className="output-bar-track"><div className="output-bar-fill" style={{width:animate?`${o.pct}%`:'0%',background:o.color,transitionDelay:`${i*80}ms`}}/></div><div className="output-pct" style={{color:o.color}}>{o.pct}%</div>{o.pct>85&&<span style={{fontSize:14}}>⚠️</span>}</div>))}
@@ -68,7 +111,7 @@ export default function AnalyticsScreen({isDark,addToast,dv}){
       <div className="two-col">
         <div className="card"><div className="card-title">Sprint Comparison</div>
           <table className="sprint-table"><thead><tr><th>Sprint</th><th>Tasks</th><th>Bugs</th><th>Velocity</th><th>Cycle</th><th>AI Score</th></tr></thead>
-            <tbody>{[...sprintTableStatic,currentSprint].map((r,i)=>(<tr key={i} className={r.current?'current':''}><td>{r.sprint}</td><td>{r.tasks}</td><td>{r.bugs}</td><td>{r.velocity}</td><td>{r.cycle}</td><td>{r.ai}</td></tr>))}</tbody></table>
+            <tbody>{[...previousSprints,currentSprint].map((r,i)=>(<tr key={i} className={r.current?'current':''}><td>{r.sprint}</td><td>{r.tasks}</td><td>{r.bugs}</td><td>{r.velocity}</td><td>{r.cycle}</td><td>{r.ai}</td></tr>))}</tbody></table>
         </div>
         <div className="card"><div className="card-title">Commit Activity</div>
           <div className="heatmap-grid">{heatmap.map((lv,i)=>(<div key={i} className="heatmap-cell" data-level={lv}><span className="heatmap-tooltip">Day {i+1}: {lv*4} commits</span></div>))}</div>
